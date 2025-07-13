@@ -1,0 +1,139 @@
+---
+title: "Análise de Eficiência de Combustível em Veículos"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+
+# Introdução
+
+**Análise de Eficiência de Combustível em Veículos**  
+Este estudo investiga os fatores que influenciam o consumo de combustível (mpg) em uma amostra de 26 veículos, utilizando peso do carro (weight1), preço e origem (nacional/importado) como preditores. O modelo simples peso vs consumo mostrou forte relação negativa (β = -5.53, p < 0.001), indicando que cada aumento de 1 tonelada reduz em 5.5 milhas por galão, explicando 65.3% da variação. A análise gráfica revelou padrão linear claro, porém com alguns outliers que merecem investigação. O modelo múltiplo, apesar de incluir preço e origem, não melhorou significativamente o ajuste (R² ajustado = 63.1% vs 63.9% do modelo simples, p = 0.485 na ANOVA), sugerindo que o peso é o principal determinante do consumo.
+
+**Implicações e Limitações**  
+Os resultados destacam o peso como fator crítico para eficiência energética em veículos, com efeito robusto mesmo após controle por outras variáveis. A não significância do preço (p = 0.404) e origem (p = 0.236) no modelo múltiplo sugere que estas características têm impacto marginal no consumo quando considerado o peso. Os diagnósticos mostraram resíduos com distribuição aproximadamente normal, porém o pequeno tamanho amostral (n=26) limita a generalização dos achados. Estudos futuros deveriam incluir variáveis como potência do motor e tipo de transmissão para melhor compreensão dos determinantes da eficiência veicular.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# -------------------------------------------------------------------
+# Configuração inicial: definindo diretório e carregando dados
+# -------------------------------------------------------------------
+
+setwd("C:/Users/PC GAMER/Downloads/data")  # Ajuste para seu diretório
+auto <- read.csv("auto.csv")  # Carrega a base de dados
+
+# Estrutura dos dados para verificar tipos e variáveis
+str(auto)
+
+# -------------------------------------------------------------------
+# Estatísticas descritivas das variáveis relevantes
+# -------------------------------------------------------------------
+
+summary(auto[, c("mpg", "weight1", "price", "foreign")])  # Sumário das variáveis
+
+# Matriz de correlação entre variáveis numéricas (excluindo variável categórica foreign)
+cor(auto[, c("mpg", "weight1", "price")])
+
+# -------------------------------------------------------------------
+# Gráfico de dispersão mpg x weight1 com linha de regressão
+# -------------------------------------------------------------------
+
+library(ggplot2)
+
+ggplot(auto, aes(x = weight1, y = mpg)) +
+  geom_point(color = "darkblue", alpha = 0.7) +  # Pontos de dados
+  geom_smooth(method = "lm", color = "red", se = TRUE) +  
+  # Linha de regressão com intervalo de confiança
+  labs(title = "Relação entre Peso do Veículo (weight1) e Consumo (mpg)",
+       x = "Peso do veículo (weight1)",
+       y = "Milhas por galão (mpg)") +
+  theme_minimal(base_size = 14)
+
+# -------------------------------------------------------------------
+# Modelo de regressão linear simples: mpg ~ weight1
+# -------------------------------------------------------------------
+
+modelo_simples <- lm(mpg ~ weight1, data = auto)
+
+summary(modelo_simples)  # Resumo do modelo com coeficientes, R², p-valores
+
+confint(modelo_simples)  # Intervalos de confiança dos coeficientes
+
+# -------------------------------------------------------------------
+# Diagnóstico do modelo simples
+# -------------------------------------------------------------------
+
+par(mfrow = c(2,2))  # Dispor gráficos 2x2
+plot(modelo_simples)  # Plot de resíduos, normalidade, leverage, etc.
+par(mfrow = c(1,1))  # Reset layout gráfico
+
+# -------------------------------------------------------------------
+# Guardar valores ajustados e resíduos no dataframe para análise posterior
+# -------------------------------------------------------------------
+
+auto$yhat1 <- fitted(modelo_simples)  # Valores ajustados (preditos)
+auto$res1 <- resid(modelo_simples)    # Resíduos do modelo
+
+# Gráfico Resíduos x Valores Ajustados para o modelo simples
+ggplot(auto, aes(x = yhat1, y = res1)) +
+  geom_point(alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Resíduos vs Valores Ajustados (Modelo Simples)",
+       x = "Valores Ajustados",
+       y = "Resíduos") +
+  theme_light()
+
+# -------------------------------------------------------------------
+# Modelo de regressão linear múltipla: mpg ~ weight1 + price + foreign
+# -------------------------------------------------------------------
+
+modelo_multiplo <- lm(mpg ~ weight1 + price + foreign, data = auto)
+
+summary(modelo_multiplo)  # Resumo do modelo múltiplo
+
+confint(modelo_multiplo)  # Intervalos de confiança para os coeficientes
+
+# -------------------------------------------------------------------
+# Diagnóstico do modelo múltiplo
+# -------------------------------------------------------------------
+
+auto$yhat2 <- fitted(modelo_multiplo)  # Valores ajustados do modelo múltiplo
+auto$res2 <- resid(modelo_multiplo)    # Resíduos do modelo múltiplo
+
+library(car)  # Para o qqPlot
+
+qqPlot(modelo_multiplo, main = "QQ-Plot dos Resíduos (Modelo Múltiplo)")  
+# Verificar normalidade dos resíduos
+
+# Gráfico resíduos vs valores ajustados para o modelo múltiplo
+ggplot(auto, aes(x = yhat2, y = res2)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(title = "Resíduos vs Valores Ajustados (Modelo Múltiplo)",
+       x = "Valores Ajustados",
+       y = "Resíduos") +
+  theme_minimal(base_size = 14)
+
+# -------------------------------------------------------------------
+# Comparação formal dos modelos simples e múltiplo via ANOVA
+# -------------------------------------------------------------------
+
+anova(modelo_simples, modelo_multiplo)
+
+# -------------------------------------------------------------------
+# Comentários finais e observações:
+# -------------------------------------------------------------------
+
+# - O peso do veículo (weight1) é o principal determinante do consumo (mpg), 
+#   com coeficiente negativo e altamente significativo.
+# - A inclusão das variáveis preço e origem não trouxe melhora significativa no ajuste, 
+#   conforme teste ANOVA (p > 0.4).
+# - Diagnósticos gráficos indicam resíduos aproximadamente normais 
+#   ausência de violações graves dos pressupostos.
+# - Tamanho amostral pequeno (n=26) limita a generalização dos resultados; 
+#   estudos futuros devem considerar variáveis adicionais (ex: potência, transmissão).

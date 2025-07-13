@@ -1,0 +1,185 @@
+---
+title: "Inferência Causal em Regressão"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+
+Este projeto foi estruturado para analisar como fatores como escolaridade, experiência profissional, tempo no emprego atual e gênero influenciam o salário dos trabalhadores. Utilizamos uma base de dados csv contendo informações salariais e características dos indivíduos. Por meio de modelos de regressão linear estimados via mínimos quadrados ordinários (MQO), investigamos relações causais e aplicamos testes t para avaliar a significância individual dos coeficientes, além de testes F para verificar a significância conjunta das variáveis no modelo. Com isso, verificamos se as variáveis consideradas têm efeito estatisticamente relevante no salário. Identificamos que maior escolaridade, mais experiência e maior tempo no emprego estão associados a salários mais altos, enquanto que, mesmo controlando essas variáveis, as mulheres ganham significativamente menos que os homens. Esses resultados evidenciam desigualdades salariais e destacam os principais determinantes do rendimento no mercado de trabalho.
+
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# --- Carregamento das bibliotecas essenciais
+library(tidyverse)      # Manipulação, gráficos, etc
+library(stargazer)      # Tabelas formatadas
+library(car)            # Testes F (linearHypothesis)
+library(ggfortify)      # Gráficos diagnósticos
+
+# --- Definição do diretório onde o arquivo wage1.csv está localizado
+setwd("C:/Users/PC GAMER/Downloads/data")
+
+# --- Carregamento dos dados
+wage1 <- read.csv("wage1.csv")
+
+# --- Criando variável logarítmica para wage para análise de normalidade
+wage1$lwage <- log(wage1$wage)
+
+# --- Exibindo as primeiras linhas das variáveis selecionadas
+wage1 %>% 
+  select(wage, educ, exper, tenure, female) %>% 
+  head(10)
+
+# --- Sumário estatístico detalhado das variáveis,
+#     para entender distribuição e características
+stargazer(
+  wage1 %>% select(wage, educ, exper, tenure, female), 
+  type = "text",
+  title = "Sumário Estatístico Descritivo"
+)
+
+# --- Visualização das distribuições para verificar normalidade
+
+# Histograma da variável wage (salário)
+ggplot(wage1) +
+  geom_histogram(aes(x = wage), bins = 30, fill = "steelblue", color = "black") +
+  labs(
+    title = "Distribuição de Wage", 
+    x = "Wage", 
+    y = "Frequência"
+  )
+
+# Histograma do log(wage), para verificar se transformação melhora normalidade
+ggplot(wage1) +
+  geom_histogram(aes(x = lwage), bins = 30, fill = "tomato", color = "black") +
+  labs(
+    title = "Distribuição de Log(Wage)", 
+    x = "Log(Wage)", 
+    y = "Frequência"
+  )
+
+# --- Teste de normalidade Shapiro-Wilk para wage e log(wage)
+shapiro_wage <- shapiro.test(wage1$wage)
+shapiro_lwage <- shapiro.test(wage1$lwage)
+print(shapiro_wage)
+print(shapiro_lwage)
+
+# --- Estimação do modelo de regressão linear para wage
+modelo <- lm(wage ~ educ + exper + tenure + female, data = wage1)
+
+# Sumário completo do modelo, inclui coeficientes, erros padrão, R², etc
+summary(modelo)
+
+# --- Teste t manual para o coeficiente da variável exper
+
+coef_exper <- coef(modelo)["exper"]                     # Coeficiente de exper
+se_exper <- sqrt(vcov(modelo)["exper", "exper"])        # Erro padrão de exper
+tstat <- coef_exper / se_exper                           # Estatística t calculada
+gl_resid <- modelo$df.residual                           # Graus de liberdade residuais
+
+# Valor crítico t bilateral a 5%
+tcrit <- qt(0.975, df = gl_resid)
+
+# Valor-p bilateral para teste t do coeficiente de exper
+p_valor_t_bilateral <- 2 * pt(abs(tstat), df = gl_resid, lower.tail = FALSE)
+
+# Exibindo resultados do teste t manual (linha a linha, para evitar cortes)
+cat("Teste t para coeficiente de exper:\n")
+cat(sprintf("Coeficiente: %.4f\n", coef_exper))
+cat(sprintf("Erro padrão: %.4f\n", se_exper))
+cat(sprintf("t-estatística: %.4f\n", tstat))
+cat(sprintf("Valor crítico (5%% bilateral): ±%.4f\n", tcrit))
+cat(sprintf("P-valor bilateral: %.4f\n\n", p_valor_t_bilateral))
+
+# --- Teste F para significância conjunta das variáveis explicativas
+
+# Modelo restrito (intercepto apenas)
+modelo_restrito <- lm(wage ~ 1, data = wage1)
+
+ssr_r <- sum(resid(modelo_restrito)^2)  # Soma dos quadrados dos resíduos do restrito
+ssr_ur <- sum(resid(modelo)^2)           # Soma dos quadrados dos resíduos do irrestrito
+q <- 4                                   # Número de restrições (coeficientes)
+
+# Estatística F manual
+F_stat <- ((ssr_r - ssr_ur) / q) / (ssr_ur / gl_resid)
+F_crit <- qf(0.95, df1 = q, df2 = gl_resid)
+
+# Valor-p do teste F manual
+p_valor_F <- pf(F_stat, df1 = q, df2 = gl_resid, lower.tail = FALSE)
+
+cat("Teste F para significância conjunta:\n")
+cat(sprintf("F-Estatística: %.4f\n", F_stat))
+cat(sprintf("Valor crítico (5%%): %.4f\n", F_crit))
+cat(sprintf("P-valor: %.4f\n\n", p_valor_F))
+
+# Verificação rápida com car::linearHypothesis
+cat("Teste F usando linearHypothesis:\n")
+print(linearHypothesis(modelo, c("educ = 0", "exper = 0", "tenure = 0", "female = 0")))
+
+# --- Teste LM (Lagrange Multiplier) para joint significance de exper e tenure
+
+# Modelo restrito (sem exper e tenure)
+modelo_r2 <- lm(wage ~ educ + female, data = wage1)
+
+# Obtendo resíduos do modelo restrito
+wage1$ehat <- residuals(modelo_r2)
+
+# Regressão dos resíduos contra todas as variáveis originais
+modelo_ehat <- lm(ehat ~ educ + exper + tenure + female, data = wage1)
+
+R2_ehat <- summary(modelo_ehat)$r.squared
+n <- nobs(modelo_ehat)
+LM_stat <- n * R2_ehat
+q_lm <- 2
+
+# Valor crítico qui-quadrado a 5%
+chi2_crit <- qchisq(0.95, df = q_lm)
+
+# Valor-p do teste LM
+p_valor_chi2 <- pchisq(LM_stat, df = q_lm, lower.tail = FALSE)
+
+cat("Teste LM para coeficientes de exper e tenure:\n")
+cat(sprintf("LM Estatística: %.4f\n", LM_stat))
+cat(sprintf("Valor crítico Qui-quadrado (5%%): %.4f\n", chi2_crit))
+cat(sprintf("P-valor: %.4f\n\n", p_valor_chi2))
+
+# --- Gráficos diagnósticos para validação do modelo e inferência causal
+
+# Configura o painel 2x2
+par(mfrow = c(2, 2))
+
+# 1) Residuals vs Fitted sem labels nos pontos
+plot(modelo, which = 1, id.n = 0)
+
+# 2) Normal Q-Q sem labels
+plot(modelo, which = 2, id.n = 0)
+
+# 3) Scale-Location (Spread-Location) sem labels
+plot(modelo, which = 3, id.n = 0)
+
+# 4) Residuals vs Leverage sem labels
+plot(modelo, which = 5, id.n = 0)  # Note: 4 é Cook's Distance, 5 é Residuals vs Leverage
+
+# Restaurar configuração padrão da tela gráfica
+par(mfrow = c(1, 1))
+
+# Gráficos aprimorados com ggfortify, sem labels (label.size = 0)
+autoplot(modelo, label.size = 0)
+
+# --- Conclusão organizada e com quebras para evitar cortes
+
+cat("Resumo dos principais resultados inferenciais:\n\n")
+cat(sprintf("Coeficiente 'exper': %.4f\n", coef_exper))
+cat(sprintf("t-Estatística: %.3f\n", tstat))
+cat(sprintf("p-valor bilateral: %.4f\n\n", p_valor_t_bilateral))
+
+cat("Teste F global:\n")
+cat(sprintf("F = %.3f\n", F_stat))
+cat(sprintf("p-valor = %.4f\n\n", p_valor_F))
+
+cat("Teste LM para exper e tenure:\n")
+cat(sprintf("LM = %.3f\n", LM_stat))
+cat(sprintf("p-valor = %.4f\n", p_valor_chi2))

@@ -1,0 +1,104 @@
+---
+title: "Análise da Participação Feminina no Mercado de Trabalho"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+
+## Análise da Participação Feminina no Mercado de Trabalho
+
+Este estudo examina os fatores que influenciam a decisão de mulheres casadas participarem do mercado de trabalho, utilizando dados de 753 mulheres. Foram comparados três modelos estatísticos: um modelo linear de probabilidade (LPM), um modelo Probit e um modelo Logit. As variáveis explicativas incluíram renda não salarial da esposa (nwifeinc), anos de educação (educ), experiência profissional (exper), idade (age) e número de filhos menores de 6 anos (kidslt6). O objetivo principal era entender como esses fatores afetam a probabilidade de participação no mercado de trabalho, considerando as limitações do LPM e as vantagens dos modelos não lineares Probit e Logit para variáveis binárias.
+
+## Resultados e Interpretação
+
+Os três modelos mostraram padrões consistentes: a renda não salarial e a presença de filhos pequenos reduzem a probabilidade de participação no mercado, enquanto maior educação e experiência aumentam essa probabilidade. O efeito marginal médio no Probit indicou que cada ano adicional de educação aumenta a probabilidade em 4%, enquanto cada filho pequeno reduz em 27.1%. O modelo Logit apresentou resultados similares, com efeitos marginais de 4.1% para educação e -26.6% para filhos pequenos. Ambos os modelos não lineares tiveram melhor desempenho preditivo (acurácia de 73.8%) comparado ao LPM, confirmando sua adequação para análise de variáveis binárias. O pseudo R² de 0.21 sugere que o modelo explica parte significativa, mas não toda, da variação na decisão de participar do mercado de trabalho.
+
+```{r, message=FALSE, warning=FALSE}
+# --- Limpar ambiente e carregar pacotes ---
+rm(list = ls())
+setwd("C:/Users/PC GAMER/Downloads/data")
+pacotes <- c("tidyverse", "stargazer", "magrittr", "margins", "ggplot2")
+for(p in pacotes){ if(!require(p, character.only = TRUE))
+  { install.packages(p, dependencies=TRUE); library(p, character.only=TRUE) } }
+
+# --- Carregar e preparar dados ---
+IFW <- read.csv("IFW.csv")
+dados <- IFW %>% select(inlf, nwifeinc, educ, exper, age, kidslt6)
+summary(dados)
+stargazer(dados, type = "text")
+
+# --- Modelos estatísticos ---
+LPM <- lm(inlf ~ nwifeinc + educ + exper + age + kidslt6, data = dados)
+Probit <- glm(inlf ~ nwifeinc + educ + exper + age + kidslt6, 
+              family = binomial(link = "probit"), data = dados)
+Logit <- glm(inlf ~ nwifeinc + educ + exper + age + kidslt6, 
+             family = binomial(link = "logit"), data = dados)
+
+# --- Adicionar previsões ---
+dados <- dados %>% mutate(inlfhat_lpm = fitted(LPM), 
+                          inlfhat_probit = fitted(Probit), inlfhat_logit = fitted(Logit))
+head(dados %>% select(inlf, inlfhat_lpm, inlfhat_probit, inlfhat_logit))
+
+# --- Gráfico Probit vs Logit ---
+ggplot(dados, aes(x = inlfhat_probit, y = inlfhat_logit)) + 
+  geom_point(alpha = 0.5) + 
+  geom_abline(color = "red", linetype = "dashed") + 
+  labs(title = "Probabilidades Previstas: Probit vs Logit", x = "Probit", y = "Logit") + 
+  theme_minimal()
+
+# --- Efeitos marginais ---
+summary(LPM)
+medias <- model.frame(Probit) %>% map_df(mean)
+Probit.atmean <- margins(Probit, at = medias)
+Probit.ame <- margins(Probit)
+Logit.atmean <- margins(Logit, at = medias)
+Logit.ame <- margins(Logit)
+summary(Probit.atmean)
+summary(Probit.ame)
+summary(Logit.atmean)
+summary(Logit.ame)
+
+# --- Pseudo R² (McFadden) ---
+LLur <- logLik(Probit)
+modelo_restrito <- glm(inlf ~ 1, family = binomial(link = "probit"), data = dados)
+LL0 <- logLik(modelo_restrito)
+pseudo_r2 <- 1 - as.numeric(LLur) / as.numeric(LL0)
+cat("Pseudo R² (McFadden):", round(pseudo_r2, 4), "\n")
+
+# --- Percentual corretamente previsto (Probit e Logit) ---
+pred_probit <- as.factor(as.numeric(fitted(Probit) > 0.5))
+pred_logit <- as.factor(as.numeric(fitted(Logit) > 0.5))
+real <- as.factor(dados$inlf)
+
+# Matriz Probit
+confusao_probit <- table(Predito = pred_probit, Real = real)
+print(confusao_probit)
+VP <- ifelse(!is.na(confusao_probit["1", "1"]), confusao_probit["1", "1"], 0)
+VN <- ifelse(!is.na(confusao_probit["0", "0"]), confusao_probit["0", "0"], 0)
+FP <- ifelse(!is.na(confusao_probit["1", "0"]), confusao_probit["1", "0"], 0)
+FN <- ifelse(!is.na(confusao_probit["0", "1"]), confusao_probit["0", "1"], 0)
+acc_probit <- (VP + VN) / (VP + VN + FP + FN)
+cat("Acurácia Probit:", round(acc_probit * 100, 2), "%\n")
+
+# Matriz Logit
+confusao_logit <- table(Predito = pred_logit, Real = real)
+print(confusao_logit)
+VP <- ifelse(!is.na(confusao_logit["1", "1"]), confusao_logit["1", "1"], 0)
+VN <- ifelse(!is.na(confusao_logit["0", "0"]), confusao_logit["0", "0"], 0)
+FP <- ifelse(!is.na(confusao_logit["1", "0"]), confusao_logit["1", "0"], 0)
+FN <- ifelse(!is.na(confusao_logit["0", "1"]), confusao_logit["0", "1"], 0)
+acc_logit <- (VP + VN) / (VP + VN + FP + FN)
+cat("Acurácia Logit:", round(acc_logit * 100, 2), "%\n")
+
+# --- Histograma das probabilidades previstas ---
+df_preds <- dados %>% pivot_longer(cols = starts_with("inlfhat_"), 
+                                   names_to = "modelo", values_to = "prob")
+ggplot(df_preds, aes(x = prob, fill = modelo)) + 
+  geom_histogram(alpha = 0.6, position = "identity", bins = 30) + 
+  labs(title = "Distribuição das Probabilidades Previstas", 
+       x = "Probabilidade", y = "Frequência") + 
+  theme_minimal()

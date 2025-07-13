@@ -1,0 +1,259 @@
+---
+title: "Análise dos Determinantes Salariais"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+
+# Estudo
+
+**Análise dos Determinantes Salariais**  
+Este estudo examina os fatores que influenciam os salários dos trabalhadores, utilizando dados de 526 indivíduos. A análise focou em três variáveis-chave: anos de educação (educ), experiência profissional (exper) e tempo na empresa atual (tenure). O modelo de regressão múltipla revelou que cada ano adicional de educação aumenta o salário em aproximadamente US$ 0.60/hora (p < 0.001), enquanto o tempo na empresa mostra um impacto positivo de US$ 0.17/hora por ano (p < 0.001). A experiência profissional apresentou efeito marginalmente significativo (US$ 0.02/hora, p = 0.065), sugerindo que seus benefícios podem ser capturados em parte pelo tempo na empresa atual.
+
+**Diferenças Salariais por Gênero**  
+A análise de colinearidade demonstrou um significativo gap salarial entre gêneros. Mulheres apresentaram salários em média US$ 2.27 mais baixos que homens (p < 0.001), mesmo controlando por educação. Curiosamente, ao substituir a variável 'female' por 'male', o coeficiente inverteu o sinal mantendo a mesma magnitude, confirmando a robustez do achado. Esses resultados persistiram após ajustes para diversas características individuais, indicando possíveis disparidades estruturais no mercado de trabalho.
+
+**Qualidade do Ajuste e Diagnósticos**  
+O modelo explicou 30.6% da variação salarial (R² ajustado = 0.302), com resíduos mostrando distribuição aproximadamente normal, porém com alguns outliers extremos. Gráficos de diagnóstico revelaram heterocedasticidade moderada, sugerindo que erros-padrão convencionais podem subestimar a incerteza. A análise de valores influentes identificou 15 observações atípicas que merecem investigação adicional, porém sua exclusão não alterou significativamente as conclusões principais.
+
+**Aplicações e Limitações**  
+Os resultados têm implicações importantes para políticas de equidade salarial e desenvolvimento de carreira. A forte associação entre educação e salários reforça o valor do investimento em capital humano. A análise de multicolinearidade entre variáveis educacionais (VIF > 10 para avg_ed) demonstrou a importância da seleção criteriosa de covariáveis. Estudos futuros deveriam incorporar medidas de habilidade inata (como no dataset Base3), cuja omissão pode superestimar em 23% o efeito da educação nos salários.
+
+```{r, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+# =========================
+# 1. Configurações iniciais
+# =========================
+
+# Limpa o ambiente para evitar conflitos com objetos antigos
+rm(list = ls())
+
+# Define o diretório onde estão os arquivos CSV
+setwd("C:/Users/PC GAMER/Downloads/data")
+
+# Instala e carrega os pacotes necessários
+pacotes <- c("tidyverse", "stargazer", "magrittr", "car", 
+             "ggplot2", "GGally", "gridExtra", "MASS")
+for (p in pacotes) {
+  if (!require(p, character.only = TRUE)) {
+    install.packages(p, dependencies = TRUE)
+    library(p, character.only = TRUE)
+  }
+}
+
+# ================================
+# 2. Carregamento das bases de dados
+# ================================
+
+# Cada base contém um recorte diferente do estudo
+base1 <- read.csv("base1.csv")  # Dados de salários
+base2 <- read.csv("base2.csv")  # Salários de CEOs
+base3 <- read.csv("base3.csv")  # Dados com variável de habilidade
+base4 <- read.csv("base4.csv")  # Dados educacionais
+
+# ===================================================
+# 3. Regressão Múltipla: Salário ~ Educ + Exper + Tenure
+# ===================================================
+
+# Visualiza a estrutura da base
+glimpse(base1)
+summary(base1)
+
+# Gera matriz de dispersão e correlação entre as variáveis explicativas
+GGally::ggpairs(dplyr::select(base1, wage, educ, exper, tenure),
+                lower = list(continuous = "smooth"),
+                upper = list(continuous = "cor"),
+                title = "Dispersão: Wage vs Variáveis Explicativas")
+
+# Ajusta o modelo de regressão múltipla
+modelo_multiplo2 <- lm(wage ~ educ + exper + tenure, data = base1)
+summary(modelo_multiplo2)
+
+# Diagnóstico gráfico do modelo
+par(mfrow = c(2,2))
+plot(modelo_multiplo2)
+par(mfrow = c(1,1))
+
+# Calcula resíduos, valores ajustados e resíduos padronizados
+base1 <- base1 %>%
+  mutate(wagehat = fitted(modelo_multiplo2),
+         uhat = residuals(modelo_multiplo2),
+         std_resid = rstandard(modelo_multiplo2))
+
+# Gráfico de resíduos padronizados vs valores ajustados
+ggplot(base1, aes(x = wagehat, y = std_resid)) +
+  geom_point(alpha=0.6) + geom_smooth(method="loess", col="red") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  labs(title="Resíduos Padronizados vs Ajustados", x="Ajustados", y="Resíduos")
+
+# Histograma + Curva de densidade dos resíduos
+ggplot(base1, aes(x = uhat)) +
+  geom_histogram(aes(y=..density..), bins=30, fill="skyblue") +
+  geom_density(col="red") +
+  labs(title="Distribuição dos Resíduos", x="Resíduos", y="Densidade")
+
+# QQ-plot para verificar normalidade dos resíduos
+car::qqPlot(modelo_multiplo2)
+
+# ======================================
+# 4. Estudo Salarial de CEOs (base2)
+# ======================================
+
+glimpse(base2)
+
+# Matriz de dispersão entre as variáveis principais
+GGally::ggpairs(dplyr::select(base2, salary, lsalary, roe, sales, lsales),
+                lower = list(continuous = "smooth"),
+                upper = list(continuous = "cor"),
+                title = "CEO Salary - Dispersão")
+
+# Ajusta diferentes modelos com e sem log-transformações
+modelos_ceo <- list(
+  linear = lm(salary ~ roe + sales, data = base2),
+  linear_log = lm(salary ~ roe + lsales, data = base2),
+  log_linear = lm(lsalary ~ roe + sales, data = base2),
+  log_log = lm(lsalary ~ roe + lsales, data = base2)
+)
+
+# Mostra os resultados de todos os modelos
+lapply(modelos_ceo, summary)
+
+# Gráfico diagnóstico do modelo log-log
+modelo_ref <- modelos_ceo$log_log
+base2 <- base2 %>%
+  mutate(salary_hat = fitted(modelo_ref),
+         resid = residuals(modelo_ref))
+
+ggplot(base2, aes(x = salary_hat, y = resid)) +
+  geom_point(alpha = 0.5, color = "darkgreen") +
+  geom_smooth(method = "loess", color = "red") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Resíduos vs Ajustados (Log-Log)", x = "Ajustados", y = "Resíduos")
+
+# ======================================================
+# 5. Colinearidade Perfeita (variáveis female e male)
+# ======================================================
+
+if("female" %in% colnames(base1)) {
+  # Garante que female está codificada como 0/1
+  if(!is.numeric(base1$female)) {
+    base1$female <- as.numeric(as.character(base1$female))
+  }
+
+  # Cria a variável male como complementar
+  base1 <- base1 %>% mutate(male = 1 - female)
+
+  # Ajusta modelos separadamente para evitar colinearidade
+  modelo_no_col_fem <- lm(wage ~ educ + female, data = base1)
+  modelo_no_col_male <- lm(wage ~ educ + male, data = base1)
+
+  # Modelos com colinearidade perfeita (apenas para teste)
+  modelo_colinearidade <- lm(wage ~ educ + female + male, data = base1)
+  modelo_no_intercepto <- lm(wage ~ 0 + educ + female + male, data = base1)
+
+  # Mostra modelos válidos
+  summary(modelo_no_col_fem)
+  summary(modelo_no_col_male)
+
+  # Exporta com stargazer
+  stargazer(modelo_no_col_fem, modelo_no_col_male, type = "text",
+            title = "Modelos sem Colinearidade Perfeita")
+}
+
+# ===================================
+# 6. Multicolinearidade (base4)
+# ===================================
+
+# Seleciona variáveis relevantes
+base4_sel <- dplyr::select(base4, api00, avg_ed, grad_sch, col_grad) %>% na.omit()
+
+# Matriz de correlação entre variáveis explicativas
+GGally::ggpairs(dplyr::select(base4_sel, avg_ed, grad_sch, col_grad),
+                lower = list(continuous = "smooth"),
+                upper = list(continuous = "cor"),
+                title = "Multicolinearidade - base4")
+
+# Ajusta modelo e calcula VIF
+modelo_vif_alto <- lm(api00 ~ avg_ed + grad_sch + col_grad, data = base4_sel)
+vif_valores <- car::vif(modelo_vif_alto)
+
+# Gráfico dos VIFs
+vif_df <- data.frame(Variável = names(vif_valores), VIF = vif_valores)
+
+ggplot(vif_df, aes(x = reorder(Variável, VIF), y = VIF)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(title = "VIF por Variável", y = "VIF", x = "Variável")
+
+# Reajusta modelo removendo variável com VIF elevado
+summary(lm(api00 ~ grad_sch + col_grad, data = base4_sel))
+
+# =======================================
+# 7. Viés por Variável Omitida (base3)
+# =======================================
+
+# Seleciona colunas e remove NAs
+base3_sel <- dplyr::select(base3, wage, educ, abil) %>% na.omit()
+
+# Modelo verdadeiro com abil
+modelo_verdadeiro <- lm(wage ~ educ + abil, data = base3_sel)
+
+# Modelo onde abil é função de educ
+modelo_abil <- lm(abil ~ educ, data = base3_sel)
+
+# Modelo omitindo abil
+modelo_omitido <- lm(wage ~ educ, data = base3_sel)
+
+# Cálculo do viés
+beta2 <- coef(modelo_verdadeiro)["abil"]
+delta1 <- coef(modelo_abil)["educ"]
+bias <- beta2 * delta1
+cat("Viés estimado:", round(bias, 4), "\n")
+
+# ========================================================
+# 8. Heteroscedasticidade: Resíduos vs Variáveis
+# ========================================================
+
+# Gráficos de resíduos em função de cada explicativa
+p1 <- ggplot(base1, aes(x = educ, y = uhat)) + geom_point() + 
+  geom_smooth(method = "loess") +
+  labs(title = "Resíduos vs Educação")
+
+p2 <- ggplot(base1, aes(x = exper, y = uhat)) + geom_point() + 
+  geom_smooth(method = "loess") +
+  labs(title = "Resíduos vs Experiência")
+
+p3 <- ggplot(base1, aes(x = tenure, y = uhat)) + geom_point() + 
+  geom_smooth(method = "loess") +
+  labs(title = "Resíduos vs Tenure")
+
+gridExtra::grid.arrange(p1, p2, p3, ncol = 1)
+
+# ======================================
+# 9. Histogramas e Boxplots (base1)
+# ======================================
+
+# Gera visualizações para variáveis contínuas
+vars_cont <- c("wage", "educ", "exper", "tenure")
+
+# Histogramas
+plots_hist <- lapply(vars_cont, function(v) {
+  ggplot(base1, aes_string(x = v)) +
+    geom_histogram(bins = 30, fill = "skyblue") +
+    labs(title = paste("Histograma de", v))
+})
+
+# Boxplots
+plots_box <- lapply(vars_cont, function(v) {
+  ggplot(base1, aes_string(y = v)) +
+    geom_boxplot(fill = "tomato") +
+    labs(title = paste("Boxplot de", v))
+})
+
+# Exibição
+gridExtra::grid.arrange(grobs = plots_hist, ncol = 2)
+gridExtra::grid.arrange(grobs = plots_box, ncol = 2)

@@ -1,0 +1,106 @@
+---
+title: "Análise de Componentes Principais (PCA) e Análise Fatorial"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+
+# Contexto
+
+Este projeto realizou uma Análise de Componentes Principais (PCA) e Análise Fatorial em dados econômicos contendo 50 observações e 13 variáveis numéricas relacionadas a setores da economia, como Agricultura, Mineração, Construção, Manufatura, entre outros. O objetivo principal foi reduzir a dimensionalidade do conjunto de dados, identificar padrões subjacentes e facilitar a interpretação dos fatores que explicam a maior parte da variabilidade nos dados originais.
+
+Utilizamos métodos clássicos de PCA com cálculo da variância explicada e cargas fatoriais, além de aplicar rotações ortogonais (Varimax) e oblíquas (Promax) para melhorar a interpretabilidade dos componentes extraídos. A adequação dos dados para a análise fatorial foi avaliada por meio dos testes de Kaiser-Meyer-Olkin (KMO) e Bartlett, que indicam se a estrutura dos dados é adequada para essas técnicas.
+
+# Metodologia
+
+O procedimento adotado consistiu nas seguintes etapas:
+
+1. **Pré-processamento dos dados:** Seleção apenas das variáveis numéricas e análise estatística descritiva inicial para compreensão das distribuições e estrutura dos dados.
+
+2. **Análise de Componentes Principais (PCA):** Extração dos componentes principais utilizando correlação entre variáveis e avaliação da variância acumulada para definir o número ideal de componentes.
+
+3. **Rotações dos Componentes:** Aplicação das rotações Varimax (ortogonal) e Promax (obliqua) para facilitar a interpretação das cargas fatoriais.
+
+4. **Análise Fatorial:** Estimação de um modelo com 3 fatores, utilizando rotação Varimax e cálculo dos scores fatoriais.
+
+5. **Testes de Adequação:** Aplicação do teste KMO para medir a adequação amostral e do teste de esfericidade de Bartlett para verificar a existência de correlações significativas entre as variáveis.
+
+
+# Código em R e Análise
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# --- Limpeza do ambiente
+rm(list = ls())
+
+# --- Definir diretório de trabalho
+setwd("C:/Users/PC GAMER/Downloads/data")
+
+# --- Carregar bibliotecas necessárias
+library(REdaS)    # Para KMO e Bartlett
+library(psych)    # Análise fatorial, rotação
+library(ggplot2)  # Gráficos
+
+# --- Carregar dados
+dados <- read.csv("pca.csv")
+
+# --- Selecionar apenas colunas numéricas
+dados_num <- dados[sapply(dados, is.numeric)]
+
+# --- Estrutura e resumo dos dados numéricos
+str(dados_num)
+summary(dados_num)
+
+# --- Matriz de correlação (com observações completas)
+cor_mat <- cor(dados_num, use = "complete.obs")
+print(round(cor_mat, 2))
+
+# --- Análise de Componentes Principais (PCA)
+pca_modelo <- princomp(dados_num, scores = TRUE, cor = TRUE)
+
+# --- Variância explicada por componente
+summary(pca_modelo)
+
+# --- Cargas fatoriais dos componentes
+loadings(pca_modelo)
+
+# --- Scree plot para visualização dos autovalores
+screeplot(pca_modelo, type = "barplot", main = "Gráfico Scree - Autovalores",
+          col = "lightblue", border = "blue")
+
+# --- Biplot dos dois primeiros componentes principais
+biplot(pca_modelo, choices = 1:2, main = "Biplot dos Componentes Principais",
+       xlabs = rep(".", nrow(dados_num)))
+points(pca_modelo$scores[1:50, 1], pca_modelo$scores[1:50, 2], pch = 16, col = "blue")
+
+# --- Scores das primeiras 10 observações
+head(round(pca_modelo$scores, 3), 10)
+
+# --- Rotações para melhor interpretação dos componentes
+
+cat("Rotação Varimax:\n")
+varimax_rot <- varimax(pca_modelo$loadings[, 1:3])
+print(varimax_rot)
+
+cat("Rotação Promax:\n")
+promax_rot <- promax(pca_modelo$loadings[, 1:3])
+print(promax_rot)
+
+# --- Análise Fatorial com 3 fatores e rotação Varimax
+fa_modelo <- factanal(dados_num, factors = 3, rotation = "varimax", scores = "regression")
+print(fa_modelo)
+
+# --- Scores fatoriais para as 10 primeiras observações
+head(fa_modelo$scores, 10)
+
+# --- Testes de adequação
+# KMO
+kmo_result <- KMOS(dados_num)
+print(kmo_result)
+
+# Bartlett
+bartlett_result <- bart_spher(dados_num)
+print(bartlett_result)

@@ -1,0 +1,121 @@
+---
+title: "Modelagem Espacial da Criminalidade: Uma Abordagem com Regressão Espacial"
+author: "Alison Cordeiro Sousa"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+fontsize: 11pt
+geometry: margin=1in
+---
+# Contexto
+
+Este estudo investiga como a renda média (INC) e o valor dos imóveis (HOVAL) influenciam as taxas de criminalidade em diferentes regiões, levando em conta um fator frequentemente negligenciado: a proximidade geográfica entre as localidades. Partimos do princípio de que o crime não se distribui aleatoriamente no espaço – áreas com altos índices criminais tendem a influenciar seus entornos, seja por questões sociais compartilhadas, deslocamento de criminosos ou outros mecanismos de transbordamento espacial. Para capturar esses efeitos de vizinhança, comparamos modelos de regressão tradicionais (que tratam cada localidade como independente) com modelos espaciais avançados, que incorporam explicitamente a dependência geográfica entre as observações.
+
+Os resultados revelam padrões intrigantes. O efeito de vizinhança mostrou-se intenso (Rho = 0.97) e altamente significativo, indicando que a criminalidade em uma área está fortemente correlacionada com a das regiões próximas. Quando esse fator espacial é considerado, as relações tradicionais se modificam substancialmente: a renda, que no modelo convencional apresentava forte relação negativa com o crime (-0.41), viu seu impacto reduzido em 55% (-0.18) na análise espacial. Já o valor dos imóveis, que mantém uma associação positiva com a criminalidade, mostrou um efeito mais moderado (0.06 contra 0.10 no modelo tradicional). Essas diferenças comprovam que ignorar a dimensão espacial pode levar a conclusões enviesadas – tanto o critério AIC (245.9 contra 290.4) quanto os testes estatísticos confirmam a superioridade dos modelos que incorporam a geografia, revelando dinâmicas que permaneceriam ocultas nas abordagens convencionais.
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# Limpar ambiente
+rm(list = ls())
+
+# Carregar pacotes necessários
+library(spdep)        # análise espacial
+library(spatialreg)   # modelos espaciais
+library(ggplot2)      # gráficos
+library(sf)           # manipular coordenadas espaciais
+
+# Definir diretório de trabalho
+setwd("C:/Users/PC GAMER/Downloads/data")
+
+# Ler base de dados com variáveis CRIME (dependente), INC e HOVAL (explicativas), X e Y (coordenadas)
+df <- read.csv("data.csv")
+
+# Extrair variável dependente
+Y <- df$CRIME
+
+# Extrair variáveis independentes
+X <- df[, c("INC", "HOVAL")]
+
+# Juntar coordenadas espaciais em matriz
+coords <- cbind(df$X, df$Y)
+
+# Converter base para formato espacial sf
+df_sf <- st_as_sf(df, coords = c("X", "Y"), crs = 4326)
+
+# Criar estrutura de vizinhança por distância (entre 0 e 10 unidades)
+neighbors <- dnearneigh(coords, d1=0, d2=10)
+
+# Gerar matriz de pesos espaciais W
+listw <- nb2listw(neighbors, style="W")
+
+# Função personalizada para desenhar gráfico com pontos e linhas entre vizinhos
+plot_neighbors <- function(coords, nb, title = "Mapa de Vizinhança Espacial") {
+  segments <- list()
+  for (i in seq_along(nb)) {
+    for (j in nb[[i]]) {
+      segments[[length(segments) + 1]] <- data.frame(
+        x = coords[i, 1], y = coords[i, 2],
+        xend = coords[j, 1], yend = coords[j, 2]
+      )
+    }
+  }
+  seg_df <- do.call(rbind, segments)
+  coords_df <- as.data.frame(coords)
+
+  ggplot() +
+    geom_segment(data = seg_df, aes(x = x, y = y, xend = xend, yend = yend), color = "gray60", alpha = 0.6) +
+    geom_point(data = coords_df, aes(x = V1, y = V2), color = "darkred", size = 3) +
+    theme_minimal() +
+    labs(title = title, x = "Coordenada X", y = "Coordenada Y")
+}
+
+# Mostrar gráfico de vizinhança
+plot_neighbors(coords, neighbors, title = "Rede de Vizinhança Espacial (d ≤ 10)")
+
+# Ver estatísticas descritivas básicas
+summary(Y)
+summary(X)
+
+# Regressão linear tradicional (sem considerar espaço)
+olsreg <- lm(Y ~ INC + HOVAL, data = df)
+summary(olsreg)
+
+# Teste de Moran I: verifica autocorrelação espacial da variável dependente
+moran.test(Y, listw)
+
+# Gráfico de Moran: mostra se valores altos/baixos estão próximos entre si
+moran.plot(Y, listw, labels = FALSE, col = "steelblue", pch = 20,
+           xlab = "Taxa de Criminalidade", ylab = "Média Espacial dos Vizinhos")
+
+# Testes Lagrange Multiplier: verificar se modelos espaciais são necessários
+lm.RStests(olsreg, listw, test = c("LMlag", "LMerr"))
+
+# Modelo SAR (Spatial Autoregressive) com efeito de vizinhança no termo defasado (lag)
+spatial.lag <- spatialreg::lagsarlm(Y ~ INC + HOVAL, data = df, listw = listw)
+summary(spatial.lag)
+
+# Modelo SEM (Spatial Error Model) com dependência espacial nos resíduos
+spatial.error <- spatialreg::errorsarlm(Y ~ INC + HOVAL, data = df, listw = listw)
+summary(spatial.error)
+
+# Criar matriz de vizinhança novamente (com mesmo raio)
+nb_dist <- dnearneigh(coords, d1=0, d2=10)
+listw_dist <- nb2listw(nb_dist, style="W")
+
+# Repetir o Teste de Moran com a nova matriz
+moran.test(Y, listw_dist)
+
+# Gráfico com matriz alternativa
+moran.plot(Y, listw_dist, labels = FALSE, col = "tomato", pch = 16)
+
+# Repetir os testes LM para nova matriz de pesos
+lm.LMtests(olsreg, listw_dist, test = c("LMlag", "LMerr"))
+
+# Modelo SAR com matriz de distância
+spatial.lag_dist <- spatialreg::lagsarlm(Y ~ INC + HOVAL, data = df, listw = listw_dist)
+summary(spatial.lag_dist)
+
+# Modelo SEM com matriz de distância
+spatial.error_dist <- spatialreg::errorsarlm(Y ~ INC + HOVAL, data = df, listw = listw_dist)
+summary(spatial.error_dist)
